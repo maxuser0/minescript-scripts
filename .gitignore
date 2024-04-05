@@ -4,6 +4,9 @@
 # macOS
 .DS_Store
 
+# zip files for each script version release
+*/v*/*.zip
+
 # eclipse
 bin
 *.launch
