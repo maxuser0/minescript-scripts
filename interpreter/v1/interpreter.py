@@ -6,16 +6,21 @@ r"""interpreter v1 distributed via minescript.net
 A Python REPL interpreter in the Minecraft chat with
 Java reflection.
 
+If a file is found in any of the directories of the config
+variable `command_path` from `config.txt` with the filename
+`.interpreter_init.py`, that script is loaded during startup
+of the interpreter.
+
 When the interpreter launches, the prompt ">>>" appears
-in the Minecraft chat. Enter Python statements or expression
+in the Minecraft chat. Enter Python statements or expressions
 just as you would in a Python REPL in a terminal.
 
-Put the interpreter in the background by hitting the
-escape key or backspacing over the ">>>" prompt to enter
-a Minecraft command, chat message, or Minescript command.
+Put the interpreter in the background by hitting the escape
+key or deleting the ">>>" prompt to enter a Minecraft command,
+chat message, or Minescript command.
 
-Bring the interpreter to the foreground by pressing "i"
-while no GUI screens are visible.
+Bring the interpreter to the foreground by pressing "i" while
+no GUI screens are visible.
 
 Exit the interpreter by typing "." at the ">>>" prompt.
 
@@ -30,7 +35,7 @@ import faulthandler
 import signal
 
 from minescript import *
-from lib_java import JavaClass, JavaObject, Float, JavaReleasePool
+from lib_java import JavaClass, JavaObject, Float, JavaReleasePool, null
 import minescript_runtime
 from minescript_runtime import debug_log
 
@@ -54,10 +59,9 @@ if minescript_runtime._is_debug:
   faulthandler.register(signal.SIGUSR1, minescript_runtime._debug_log)
 
 for func in (
-    log, player, player_look_at, player_set_orientation, entities,
-    java_access_field, java_array_index, java_array_length, java_bool, java_call_method,
-    java_class, java_ctor, java_double, java_int, java_member, java_new_instance, java_release,
-    java_string, java_to_string):
+    log, java_access_field, java_array_index, java_array_length, java_bool, java_call_method,
+    java_class, java_ctor, java_double, java_float, java_int, java_member, java_new_instance,
+    java_release, java_string, java_to_string):
   func.set_default_executor(script_loop)
 
 def is_valid_subexpression(text):
@@ -208,17 +212,26 @@ with EventQueue() as q:
   print("Press `i` to return to the interpreter. Type `.` to exit.", file=sys.stderr)
   show_chat_screen(True, chat_prefix)
 
-  # Record locals here to be excluded when reading locals below for tab completion,
-  # because eval() and exec() will use locals that are polluted by the surrounding script.
   event = None
   message = None
-  original_locals = set(locals().keys())
 
-  null = JavaObject(0, own=False)
-  Objects = JavaClass("java.util.Objects")
-  Minecraft = JavaClass("net.minecraft.client.Minecraft")
-  minecraft = Minecraft.getInstance()
-  #Minescript = JavaClass("net.minescript.common.Minescript")
+  # Local vars to be excluded from tab completion.
+  ignore_completions = [
+    "minescript_runtime", "MinescriptRuntimeOptions", "event", "message", "python_dirs", "dirname",
+    "init_filename", "last_code_time", "source_code", "chat_prefix"
+  ]
+
+  Minescript = JavaClass("net.minescript.common.Minescript")
+
+  python_dirs = os.environ["MINESCRIPT_COMMAND_PATH"].split(os.pathsep)
+  for dirname in python_dirs:
+    init_filename = os.path.join(dirname, ".interpreter_init.py")
+    if os.path.exists(init_filename):
+      with open(init_filename, "r") as init_file:
+        builtins.exec(init_file.read())
+      del init_file
+      print("Loaded .interpreter_init.py", file=sys.stderr)
+      break
 
   while True:
     try:
@@ -247,9 +260,11 @@ with EventQueue() as q:
             continue
 
       elif event.type == EventType.KEY:
-        process_key_event(event, set(locals().keys()).difference(original_locals))
+        process_key_event(event, set(locals().keys()).difference(ignore_completions))
+
     except Exception as e:
       echo_json({"text": f"Error: {str(e)}", "color": "red"})
+
     except:
       log("Unknown exception")
       echo_json({"text": "Unknown exception", "color": "red"})

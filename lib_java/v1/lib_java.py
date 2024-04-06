@@ -26,27 +26,40 @@ from minescript import (
 )
 from minescript_runtime import debug_log
 from dataclasses import dataclass
+from typing import Any, List, Set, Dict, Tuple, Optional, Callable
 
 for func in (
     java_access_field, java_array_index, java_array_length, java_bool, java_call_method,
-    java_class, java_ctor, java_double, java_int, java_member, java_new_instance, java_release,
-    java_string, java_to_string):
+    java_class, java_ctor, java_double, java_float, java_int, java_member, java_new_instance,
+    java_release, java_string, java_to_string):
   func.set_default_executor(script_loop)
 
 _null_id = 0
 
+@dataclass
+class RecordedTaskList:
+  tasks: List[Task]
+  refs: List[int] # Java references that can be released if/when the scheduled tasks are canceled.
+
+  def append(self, task: Task):
+    self.tasks.append(task)
+
 _is_recording = False
-_recorded_task_list = None
+_recorded_tasks = None
 
-def enable_record_mode(task_list):
-  global _is_recording, _recorded_task_list
+def start_recording_tasks():
+  global _is_recording, _recorded_tasks
   _is_recording = True
-  _recorded_task_list = task_list
+  _recorded_tasks = RecordedTaskList([], [])
 
-def disable_record_mode():
-  global _is_recording, _recorded_task_list
+def stop_recording_tasks() -> Tuple[List[Task], List[int]]:
+  global _is_recording, _recorded_tasks
   _is_recording = False
-  _recorded_task_list = None
+
+  tasks = _recorded_tasks
+  _recorded_tasks = None
+
+  return tasks
 
 
 Object_id = java_class("java.lang.Object")
@@ -79,6 +92,7 @@ class JavaReleasePool:
     self.refs = []
 
   def __call__(self, ref):
+    """Track `ref` for auto-release when this pool is deleted or goes out of scope."""
     self.refs.append(ref)
     return ref
 
@@ -194,7 +208,7 @@ class JavaObject:
             field_type_id,
             java_access_field.as_task(self.id, binding.member_id),
             f"field `{name}`")
-        _recorded_task_list.append(task.task)
+        _recorded_tasks.append(task.task)
         return task
       except Exception as e:
         debug_log(f"lib_java.py: caught exception accessing field `{name}`: {e}")
@@ -266,7 +280,7 @@ class JavaBoundMember:
               java_call_method.as_task(self.target, self.member_id,
                   *[to_java_type(a) for a in args]),
               f"method `{self.member_name}`")
-          _recorded_task_list.append(task.task)
+          _recorded_tasks.append(task.task)
           return task
       raise ValueError(f"No method found named `{self.member_name}` with {len(args)} arg(s).")
 
@@ -305,7 +319,7 @@ class JavaClass(JavaObject):
             field_type_id,
             java_access_field.as_task(self.id, binding.member_id),
             f"field `{name}`")
-        _recorded_task_list.append(task.task)
+        _recorded_tasks.append(task.task)
         return task
       except Exception as e:
         debug_log(f"lib_java.py: caught exception accessing field `{name}`: {e}")
@@ -328,7 +342,7 @@ class JavaClass(JavaObject):
           self.id,
           java_new_instance.as_task(self.ctor, *[to_java_type(a) for a in args]),
           f"ctor `{self.class_name}`")
-      _recorded_task_list.append(task.task)
+      _recorded_tasks.append(task.task)
       return task
 
     return JavaObject(java_new_instance(self.ctor, *[to_java_type(a) for a in args]))
@@ -355,9 +369,11 @@ class RecordedTask:
           field_type_id,
           java_access_field.as_task(self.task, binding.member_id),
           f"field `{name}`")
-      _recorded_task_list.append(task.task)
+      _recorded_tasks.append(task.task)
       return task
     except Exception as e:
       debug_log(f"lib_java.py: caught exception accessing field `{name}`: {e}")
       return binding
+
+null = JavaObject(0, own=False)
 
