@@ -13,6 +13,9 @@ Example:
   from minescript import echo
   from lib_java import JavaClass
 
+  # This example requires a version of Minecraft with
+  # unobfuscated symbols, like dev-mode launchers or
+  # NeoForge.
   Minecraft = JavaClass("net.minecraft.client.Minecraft")
   minecraft = Minecraft.getInstance()
   echo("fps:", minecraft.getFps())
@@ -97,8 +100,9 @@ class JavaReleasePool:
     return ref
 
   def release_all(self):
-    java_release(*self.refs)
-    self.refs.clear()
+    if self.refs:
+      java_release(*self.refs)
+      self.refs.clear()
 
   def __enter__(self):
     return self

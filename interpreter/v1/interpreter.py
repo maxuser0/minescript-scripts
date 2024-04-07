@@ -26,6 +26,7 @@ Exit the interpreter by typing "." at the ">>>" prompt.
 
 Requires:
   minescript v4.0
+  lib_java v1
 
 Usage:
   \interpreter
@@ -112,10 +113,10 @@ def get_completions(target, local_vars, partial):
     Member_getName = java_member(Member_class, "getName")
     java_release(Member_class)
 
-  with JavaReleasePool() as pool:
-    completions = set()
-    if target:
-      try:
+  completions = set()
+  if target:
+    try:
+      with JavaReleasePool() as pool:
         target = builtins.eval(target)
         if isinstance(target, JavaObject):
           log(f"target -> {target} ({target.__dict__})")
@@ -143,13 +144,13 @@ def get_completions(target, local_vars, partial):
             if name.startswith(partial):
               completions.add(name)
           del fields
-      except Exception as e:
-        echo_json({"text": f"Error: {str(e)}", "color": "red"})
-    else:
-      for var in local_vars:
-        if var.startswith(partial):
-          completions.add(var)
-    return list(completions)
+    except Exception as e:
+      echo_json({"text": f"Error: {str(e)}", "color": "red"})
+  else:
+    for var in local_vars:
+      if var.startswith(partial):
+        completions.add(var)
+  return list(completions)
 
 
 def longest_common_prefix(strings):
